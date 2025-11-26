@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Tetris Clone</title>
+    <style>
+        body {
+            background: #202028;
+            color: #fff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 16px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        .game-container {
+            display: flex;
+            gap: 20px;
+            align-items: flex-start;
+        }
+
+        .panel {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            min-width: 150px;
+        }
+
+        .box {
+            background: #373740;
+            border: 2px solid #4a4a55;
+            padding: 15px;
+            border-radius: 4px;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+
+        .box h3 {
+            margin: 0 0 10px 0;
+            font-size: 1.1em;
+            color: #aaa;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .value {
+            font-size: 1.5em;
+            font-weight: bold;
+        }
+
+        #tetris {
+            border: 2px solid #fff;
+            background-color: #000;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            display: block;
+        }
+
+        /* Canvas for Hold and Next */
+        canvas.mini-canvas {
+            background-color: #000;
+            border: 1px solid #555;
+            margin: 0 auto;
+            display: block;
+        }
+
+        #pause-overlay, #game-over-overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            display: none; /* Hidden by default */
+        }
+
+        .overlay-content {
+            text-align: center;
+        }
+
+        .overlay-content h1 {
+            font-size: 3em;
+            margin-bottom: 20px;
+            text-transform: uppercase;
+            letter-spacing: 5px;
+        }
+
+        button {
+            background: #00d2ff;
+            border: none;
+            padding: 15px 30px;
+            font-size: 1.2em;
+            color: #000;
+            cursor: pointer;
+            font-weight: bold;
+            text-transform: uppercase;
+            border-radius: 4px;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: #3a8eff;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="pause-overlay">
+        <div class="overlay-content">
+            <h1>Paused</h1>
+            <p>Press ESC to Resume</p>
+        </div>
+    </div>
+
+    <div id="game-over-overlay">
+        <div class="overlay-content">
+            <h1>Game Over</h1>
+            <p id="final-score">Score: 0</p>
+            <button onclick="playerReset()">Restart</button>
+        </div>
+    </div>
+
+    <div class="game-container">
+        <!-- Left Panel: Hold -->
+        <div class="panel">
+            <div class="box">
+                <h3>Hold</h3>
+                <canvas id="hold" width="100" height="100"></canvas>
+            </div>
+            <div class="box">
+                <h3>Controls</h3>
+                <div style="font-size: 0.8em; text-align: left; line-height: 1.6;">
+                    A / D : Move<br>
+                    Space : Hard Drop<br>
+                    K : Soft Drop<br>
+                    S : Rotate Left<br>
+                    W : Rotate Right<br>
+                    L : Rotate 180<br>
+                    J : Hold<br>
+                    ESC : Pause
+                </div>
+            </div>
+        </div>
+
+        <!-- Center: Main Game -->
+        <canvas id="tetris" width="200" height="400"></canvas>
+
+        <!-- Right Panel: Next, Score, Level -->
+        <div class="panel">
+            <div class="box">
+                <h3>Next</h3>
+                <canvas id="next" width="100" height="250"></canvas>
+            </div>
+            <div class="box">
+                <h3>Score</h3>
+                <div class="value" id="score">0</div>
+            </div>
+            <div class="box">
+                <h3>Level</h3>
+                <div class="value" id="level">1</div>
+            </div>
+            <div class="box">
+                <h3>Lines</h3>
+                <div class="value" id="lines">0</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /* =========================================
+           1. CONSTANTS & SETUP
+           ========================================= */
+        const canvas = document.getElementById('tetris');
+        const context = canvas.getContext('2d');
+        
+        const holdCanvas = document.getElementById('hold');
+        const holdCtx = holdCanvas.getContext('2d');
+        
+        const nextCanvas = document.getElementById('next');
+        const nextCtx = nextCanvas.getContext('2d');
+
+        // 20x scaling for standard 10x20 grid
+        context.scale(20, 20);
+        holdCtx.scale(20, 20);
+        nextCtx.scale(20, 20);
+
+        // Colors for pieces (I, J, L, O, S, T, Z)
+        // Indices match the type map below. 0 is empty.
+        const COLORS = [
+            null,
+            '#FF0D72', // T (Purple-ish/Magenta)
+            '#0DC2FF', // I (Cyan)
+            '#0DFF72', // S (Green)
+            '#F538FF', // Z (Red - actually this palette is slightly custom, let's fix to guidelines)
+            '#FF8E0D', // L (Orange)
+            '#FFE138', // O (Yellow)
+            '#3877FF', // J (Blue)
+        ];
+
+        // Guideline Colors Correction
+        const PIECE_COLORS = {
+            'T': '#800080', // Purple
+            'I': '#00FFFF', // Cyan
+            'S': '#00FF00', // Green
+            'Z': '#FF0000', // Red
+            'L': '#FFA500', // Orange
+            'O': '#FFFF00', // Yellow
+            'J': '#0000FF'  // Blue
+        };
+
+        // SRS Wall Kick Data
+        // Offset order: 0>>1, 1>>2, 2>>3, 3>>0
+        // Each test contains 5 offset pairs [x,y]
+        const WALL_KICKS = {
+            // J, L, S, T, Z
+            general: [
+                [[0,0], [-1,0], [-1,1], [0,-2], [-1,-2]], // 0>>1 (0 to R)
+                [[0,0], [1,0], [1,-1], [0,2], [1,2]],     // 1>>2 (R to 2)
+                [[0,0], [1,0], [1,1], [0,-2], [1,-2]],    // 2>>3 (2 to L)
+                [[0,0], [-1,0], [-1,-1], [0,2], [-1,2]]   // 3>>0 (L to 0)
+            ],
+            // I Piece
+            i: [
+                [[0,0], [-2,0], [1,0], [-2,-1], [1,2]],   // 0>>1
+                [[0,0], [-1,0], [2,0], [-1,2], [2,-1]],   // 1>>2
+                [[0,0], [2,0], [-1,0], [2,1], [-1,-2]],   // 2>>3
+                [[0,0], [1,0], [-2,0], [1,-2], [-2,1]]    // 3>>0
+            ]
+        };
+        
+        // Inverse kicks for counter-clockwise are derived by negating the test vector of the reverse rotation
+        // For simplicity in this implementation, we will implement the standard tests explicitly if needed or just use the standard map.
+        // The standard actually defines separate tables for CW and CCW.
+        // To save space/complexity, we will implement the full table lookup logic in `playerRotate`.
+
+        /* =========================================
+           2. GAME STATE
+           ========================================= */
+        // Standard width is 10.
+        const ARENA_W = 10;
+        const ARENA_H = 20;
+        const arenaMatrix = createMatrix(ARENA_W, ARENA_H);
+
+        const player = {
+            pos: {x: 0, y: 0},
+            matrix: null,
+            score: 0,
+            lines: 0,
+            level: 1,
+            hold: null,
+            canHold: true,
+            type: null, // 'T', 'I' etc
+            rotationState: 0, // 0=0, 1=R, 2=2, 3=L
+            lockTimer: null,
+            lockDelay: 500, // ms
+            isDropping: false, // for soft drop
+        };
+
+        let dropCounter = 0;
+        let dropInterval = 1000;
+        let lastTime = 0;
+        let isPaused = false;
+        let isGameOver = false;
+        let bag = [];
+        let nextQueue = [];
+
+        // Input State for DAS
+        const keys = {
+            left: false,
+            right: false,
+            down: false
+        };
+        let dasTimer = 0;
+        const DAS_DELAY = 10; // Frames to wait before auto-shift
+        const DAS_RATE = 2;   // Frames between shifts
+
+        /* =========================================
+           3. CORE FUNCTIONS
+           ========================================= */
+
+        function createMatrix(w, h) {
+            const matrix = [];
+            while (h--) {
+                matrix.push(new Array(w).fill(0));
+            }
+            return matrix;
+        }
+
+        function createPiece(type) {
+            if (type === 'I') {
+                return [
+                    [0, 1, 0, 0],
+                    [0, 1, 0, 0],
+                    [0, 1, 0, 0],
+                    [0, 1, 0, 0],
+                ];
+            } else if (type === 'L') {
+                return [
+                    [0, 2, 0],
+                    [0, 2, 0],
+                    [0, 2, 2],
+                ];
+            } else if (type === 'J') {
+                return [
+                    [0, 3, 0],
+                    [0, 3, 0],
+                    [3, 3, 0],
+                ];
+            } else if (type === 'O') {
+                return [
+                    [4, 4],
+                    [4, 4],
+                ];
+            } else if (type === 'Z') {
+                return [
+                    [5, 5, 0],
+                    [0, 5, 5],
+                    [0, 0, 0],
+                ];
+            } else if (type === 'S') {
+                return [
+                    [0, 6, 6],
+                    [6, 6, 0],
+                    [0, 0, 0],
+                ];
+            } else if (type === 'T') {
+                return [
+                    [0, 7, 0],
+                    [7, 7, 7],
+                    [0, 0, 0],
+                ];
+            }
+        }
+        
+        // Helper to map number back to color
+        function getColor(val) {
+            const map = [null, 'I', 'L', 'J', 'O', 'Z', 'S', 'T'];
+            // The matrix values: 1=I, 2=L, 3=J, 4=O, 5=Z, 6=S, 7=T
+            // Wait, my createPiece uses 1..7 based on logic above.
+            // Let's standardize PIECE_COLORS lookup.
+            const type = map[val];
+            return PIECE_COLORS[type];
+        }
+
+        function drawMatrix(matrix, offset, ctxRef = context, ghost = false) {
+            matrix.forEach((row, y) => {
+                row.forEach((value, x) => {
+                    if (value !== 0) {
+                        ctxRef.fillStyle = ghost ? 'rgba(255, 255, 255, 0.2)' : getColor(value);
+                        ctxRef.fillRect(x + offset.x, y + offset.y, 1, 1);
+                        
+                        // Add a slight border effect for detail
+                        if (!ghost) {
+                            ctxRef.lineWidth = 0.05;
+                            ctxRef.strokeStyle = 'rgba(0,0,0,0.5)';
+                            ctxRef.strokeRect(x + offset.x, y + offset.y, 1, 1);
+                        }
+                    }
+                });
+            });
+        }
+
+        function draw() {
+            // Clear main canvas
+            context.fillStyle = '#000';
+            context.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw Board
+            drawMatrix(arenaMatrix, {x: 0, y: 0});
+
+            if (!isGameOver && !isPaused) {
+                // Ghost Piece
+                const ghostPos = { ...player.pos };
+                while (!collide(arenaMatrix, { ...player, pos: ghostPos })) {
+                    ghostPos.y++;
+                }
+                ghostPos.y--; // Step back one
+                drawMatrix(player.matrix, ghostPos, context, true);
+
+                // Active Piece
+                drawMatrix(player.matrix, player.pos);
+            }
+        }
+
+        function merge(arena, player) {
+            player.matrix.forEach((row, y) => {
+                row.forEach((value, x) => {
+                    if (value !== 0) {
+                        arena[y + player.pos.y][x + player.pos.x] = value;
+                    }
+                });
+            });
+        }
+
+        // Collision Detection
+        function collide(arena, player) {
+            const m = player.matrix;
+            const o = player.pos;
+            for (let y = 0; y < m.length; ++y) {
+                for (let x = 0; x < m[y].length; ++x) {
+                    if (m[y][x] !== 0 &&
+                       (arena[y + o.y] && arena[y + o.y][x + o.x]) !== 0) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        // Bag Randomizer
+        function refreshBag() {
+            const pieces = ['I', 'L', 'J', 'O', 'Z', 'S', 'T'];
+            // Shuffle
+            for (let i = pieces.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [pieces[i], pieces[j]] = [pieces[j], pieces[i]];
+            }
+            bag.push(...pieces);
+        }
+
+        function nextPiece() {
+            if (bag.length === 0) refreshBag();
+            return bag.shift();
+        }
+
+        function updateQueue() {
+            while (nextQueue.length < 5) {
+                if (bag.length === 0) refreshBag();
+                nextQueue.push(bag.shift());
+            }
+            drawNext();
+        }
+
+        function playerReset() {
+            // Clear arena
+            arenaMatrix.forEach(row => row.fill(0));
+            
+            player.score = 0;
+            player.lines = 0;
+            player.level = 1;
+            player.hold = null;
+            player.canHold = true;
+            updateScore();
+            
+            bag = [];
+            nextQueue = [];
+            updateQueue();
+            
+            spawnPiece();
+            
+            isGameOver = false;
+            isPaused = false;
+            document.getElementById('game-over-overlay').style.display = 'none';
+            
+            // Reset loop timing
+            lastTime = performance.now();
+            dropCounter = 0;
+            updateDropInterval();
+        }
+
+        function spawnPiece() {
+            if (nextQueue.length === 0) updateQueue();
+            const type = nextQueue.shift();
+            updateQueue();
+            
+            player.type = type;
+            player.matrix = createPiece(type);
+            // Center the piece
+            player.pos.y = 0;
+            player.pos.x = (arenaMatrix[0].length / 2 | 0) - (player.matrix[0].length / 2 | 0);
+            player.rotationState = 0;
+            player.canHold = true;
+
+            // Immediate collision check = Game Over
+            if (collide(arenaMatrix, player)) {
+                isGameOver = true;
+                document.getElementById('game-over-overlay').style.display = 'flex';
+                document.getElementById('final-score').innerText = "Score: " + player.score;
+            }
+        }
+
+        /* =========================================
+           4. MOVEMENT & LOGIC
+           ========================================= */
+
+        function playerDrop() {
+            player.pos.y++;
+            if (collide(arenaMatrix, player)) {
+                player.pos.y--;
+                lockPiece();
+            }
+            dropCounter = 0;
+        }
+
+        function playerHardDrop() {
+            while (!collide(arenaMatrix, player)) {
+                player.pos.y++;
+            }
+            player.pos.y--;
+            lockPiece();
+        }
+
+        function lockPiece() {
+            merge(arenaMatrix, player);
+            arenaSweep();
+            spawnPiece();
+        }
+
+        function playerMove(offset) {
+            player.pos.x += offset;
+            if (collide(arenaMatrix, player)) {
+                player.pos.x -= offset;
+            }
+        }
+
+        // SRS Rotation Logic
+        function rotate(matrix, dir) {
+            for (let y = 0; y < matrix.length; ++y) {
+                for (let x = 0; x < y; ++x) {
+                    [matrix[x][y], matrix[y][x]] = [matrix[y][x], matrix[x][y]];
+                }
+            }
+            if (dir > 0) {
+                matrix.forEach(row => row.reverse());
+            } else {
+                matrix.reverse();
+            }
+        }
+
+        function playerRotate(dir) {
+            const pos = player.pos.x;
+            let offset = 1;
+            
+            // 1. Perform basic rotation
+            const originalMatrix = JSON.parse(JSON.stringify(player.matrix));
+            
+            if (dir === 2) {
+                // 180 Rotation
+                player.matrix.reverse();
+                player.matrix.forEach(row => row.reverse());
+            } else {
+                rotate(player.matrix, dir);
+            }
+            
+            // Determine new rotation state
+            // 0: 0, 1: R, 2: 2, 3: L
+            const oldState = player.rotationState;
+            let newState = (oldState + dir + 4) % 4; // Handle neg for CCW
+
+            if (!collide(arenaMatrix, player)) {
+                player.rotationState = newState;
+                return; // Success
+            }
+            
+            // No kicks for 180 rotation in this basic implementation
+            if (dir === 2) {
+                player.matrix = originalMatrix;
+                return;
+            }
+
+            // 2. If collide, Try Wall Kicks
+            // Determine which test set to use
+            let type = (player.type === 'I') ? 'i' : 'general';
+            if (player.type === 'O') {
+                // O doesn't kick, just revert
+                player.matrix = originalMatrix;
+                return;
+            }
+
+            // Get kicks. We need the correct transition index.
+            // Standard SRS defines (0->1), (1->0), (1->2), (2->1), etc.
+            // My table `WALL_KICKS` is structured: 0>>1, 1>>2, 2>>3, 3>>0 (CW directions)
+            // CCW needs inverse logic or separate table.
+            // To simplify: I will implement the 8 cases for JLOSTZ and I based on standard wiki data.
+
+            // Standard SRS Offsets (x, -y) because standard uses Y up, we use Y down.
+            // Actually, let's use the standard kick data but flip Y sign where appropriate for array indices?
+            // Usually SRS data is: (x, y) where +y is UP. In canvas/array +y is DOWN.
+            // So we negate the Y value from standard SRS tables.
+
+            const kickData = getKicks(type, oldState, newState);
+            
+            for (let i = 0; i < kickData.length; i++) {
+                const [kx, ky] = kickData[i];
+                player.pos.x += kx;
+                player.pos.y -= ky; // Minus because standard data y is Up, ours is Down
+
+                if (!collide(arenaMatrix, player)) {
+                    player.rotationState = newState;
+                    return; // Success
+                }
+                // Revert pos for next test
+                player.pos.x -= kx;
+                player.pos.y += ky;
+            }
+
+            // If all failed, revert matrix
+            player.matrix = originalMatrix;
+        }
+
+        function getKicks(type, oldState, newState) {
+            // Returns array of [x,y] kicks (Standard SRS coords: y is up)
+            // J, L, S, T, Z
+            const k1 = [ // 0->1
+                [0,0], [-1,0], [-1,1], [0,-2], [-1,-2]
+            ];
+            const k2 = [ // 1->2
+                [0,0], [1,0], [1,-1], [0,2], [1,2]
+            ];
+            const k3 = [ // 2->3
+                [0,0], [1,0], [1,1], [0,-2], [1,-2]
+            ];
+            const k4 = [ // 3->0
+                [0,0], [-1,0], [-1,-1], [0,2], [-1,2]
+            ];
+
+            // I Piece
+            const i1 = [ // 0->1
+                [0,0], [-2,0], [1,0], [-2,-1], [1,2]
+            ];
+            const i2 = [ // 1->2
+                [0,0], [-1,0], [2,0], [-1,2], [2,-1]
+            ];
+            const i3 = [ // 2->3
+                [0,0], [2,0], [-1,0], [2,1], [-1,-2]
+            ];
+            const i4 = [ // 3->0
+                [0,0], [1,0], [-2,0], [1,-2], [-2,1]
+            ];
+
+            // Helper to negate vectors for reverse direction
+            const neg = (arr) => arr.map(v => [v[0] * -1, v[1] * -1]);
+
+            if (type === 'i') {
+                if (oldState===0 && newState===1) return i1;
+                if (oldState===1 && newState===0) return neg(i1);
+                if (oldState===1 && newState===2) return i2;
+                if (oldState===2 && newState===1) return neg(i2);
+                if (oldState===2 && newState===3) return i3;
+                if (oldState===3 && newState===2) return neg(i3);
+                if (oldState===3 && newState===0) return i4;
+                if (oldState===0 && newState===3) return neg(i4);
+            } else {
+                if (oldState===0 && newState===1) return k1;
+                if (oldState===1 && newState===0) return neg(k1);
+                if (oldState===1 && newState===2) return k2;
+                if (oldState===2 && newState===1) return neg(k2);
+                if (oldState===2 && newState===3) return k3;
+                if (oldState===3 && newState===2) return neg(k3);
+                if (oldState===3 && newState===0) return k4;
+                if (oldState===0 && newState===3) return neg(k4);
+            }
+            return [[0,0]];
+        }
+
+        function playerHold() {
+            if (!player.canHold) return;
+            
+            const currentType = player.type;
+            if (!player.hold) {
+                player.hold = currentType;
+                spawnPiece();
+            } else {
+                const temp = player.hold;
+                player.hold = currentType;
+                player.type = temp;
+                player.matrix = createPiece(temp);
+                player.rotationState = 0;
+                // Recenter
+                player.pos.y = 0;
+                player.pos.x = (arenaMatrix[0].length / 2 | 0) - (player.matrix[0].length / 2 | 0);
+            }
+            
+            player.canHold = false;
+            drawHold();
+        }
+
+        function arenaSweep() {
+            let rowCount = 0;
+            outer: for (let y = arenaMatrix.length - 1; y > 0; --y) {
+                for (let x = 0; x < arenaMatrix[y].length; ++x) {
+                    if (arenaMatrix[y][x] === 0) {
+                        continue outer;
+                    }
+                }
+                // Row is full
+                const row = arenaMatrix.splice(y, 1)[0].fill(0);
+                arenaMatrix.unshift(row);
+                ++y;
+                rowCount++;
+            }
+            
+            if (rowCount > 0) {
+                // Scoring (Nintendo guidelines)
+                // 1: 40 * level
+                // 2: 100 * level
+                // 3: 300 * level
+                // 4: 1200 * level
+                const lineScores = [0, 40, 100, 300, 1200];
+                player.score += lineScores[rowCount] * player.level;
+                player.lines += rowCount;
+                
+                // Level up every 10 lines
+                const newLevel = Math.floor(player.lines / 10) + 1;
+                if (newLevel > player.level) {
+                    player.level = newLevel;
+                    updateDropInterval();
+                }
+                
+                updateScore();
+            }
+        }
+
+        function updateDropInterval() {
+            // Simple speed curve
+            // Level 1: 1000ms, Level 20: very fast
+            // Formula: (0.8 - ((Level-1)*0.007))^(Level-1) approx
+            // Or just standard guideline table values
+            const speeds = [ // frames per cell drop approx converted to ms
+                800, 720, 630, 550, 470, 380, 300, 220, 130, 100, 80, 80, 80, 70, 70, 70, 50, 50, 50, 30
+            ];
+            // Fallback
+            let speed = speeds[player.level - 1] || 20;
+            dropInterval = speed;
+        }
+
+        /* =========================================
+           5. UI UPDATES
+           ========================================= */
+
+        function updateScore() {
+            document.getElementById('score').innerText = player.score;
+            document.getElementById('level').innerText = player.level;
+            document.getElementById('lines').innerText = player.lines;
+        }
+
+        function drawHold() {
+            holdCtx.fillStyle = '#000';
+            holdCtx.fillRect(0, 0, holdCanvas.width, holdCanvas.height);
+            if (player.hold) {
+                const piece = createPiece(player.hold);
+                // Center in 4x4 or 3x3
+                // Approximate centering
+                const offset = player.hold === 'I' ? {x:0.5, y:0.5} : {x:1, y:1};
+                if(player.hold === 'O') offset.x = 1; 
+                drawMatrix(piece, offset, holdCtx);
+            }
+        }
+
+        function drawNext() {
+            nextCtx.fillStyle = '#000';
+            nextCtx.fillRect(0, 0, nextCanvas.width, nextCanvas.height);
+            
+            let yOffset = 1;
+            nextQueue.slice(0, 3).forEach(type => {
+                const piece = createPiece(type);
+                let xOffset = 1;
+                if (type === 'I') xOffset = 0.5;
+                if (type === 'O') xOffset = 1;
+                
+                drawMatrix(piece, {x: xOffset, y: yOffset}, nextCtx);
+                yOffset += 3.5; // space between pieces
+            });
+        }
+
+        /* =========================================
+           6. GAME LOOP & INPUT
+           ========================================= */
+
+        let inputState = {
+            dir: 0,
+            timeDown: 0,
+            nextShift: 100,
+            active: false
+        };
+
+        function update(time = 0) {
+            if (isPaused || isGameOver) {
+                requestAnimationFrame(update);
+                return;
+            }
+            
+            if (!time) time = performance.now();
+
+            const deltaTime = time - lastTime;
+            lastTime = time;
+
+            // Drop Logic
+            dropCounter += deltaTime;
+            if (dropCounter > dropInterval) {
+                playerDrop();
+            }
+
+            // Input Handling (DAS/ARR)
+            if (inputState.active) {
+                inputState.timeDown += deltaTime;
+                if (inputState.timeDown >= inputState.nextShift) {
+                    playerMove(inputState.dir);
+                    inputState.nextShift += 50; 
+                }
+            }
+
+            draw();
+            requestAnimationFrame(update);
+        }
+
+        // Remove old gameLoop wrapper and start update directly
+        // ... (This comment is just for context in the replacement tool, actual code below)
+
+
+
+        document.addEventListener('keydown', event => {
+            if (isGameOver) return;
+
+            if (event.keyCode === 27) { // ESC
+                isPaused = !isPaused;
+                document.getElementById('pause-overlay').style.display = isPaused ? 'flex' : 'none';
+                if (!isPaused) {
+                    lastTime = performance.now();
+                    requestAnimationFrame(update);
+                }
+                return;
+            }
+
+            if (isPaused) return;
+
+            // Move Left: A (65)
+            if (event.keyCode === 65) { 
+                if (inputState.active && inputState.dir === -1) {
+                    event.preventDefault();
+                    return;
+                }
+                playerMove(-1);
+                inputState.dir = -1;
+                inputState.active = true;
+                inputState.timeDown = 0;
+                inputState.nextShift = 100;
+                event.preventDefault(); // Prevent scrolling if needed (though A doesn't scroll)
+            } 
+            // Move Right: D (68)
+            else if (event.keyCode === 68) { 
+                if (inputState.active && inputState.dir === 1) {
+                    event.preventDefault();
+                    return;
+                }
+                playerMove(1);
+                inputState.dir = 1;
+                inputState.active = true;
+                inputState.timeDown = 0;
+                inputState.nextShift = 100;
+                event.preventDefault();
+            } 
+            // Soft Drop: K (75)
+            else if (event.keyCode === 75) { 
+                playerDrop();
+                dropCounter = 0; 
+                event.preventDefault();
+            } 
+            // Hard Drop: Space (32)
+            else if (event.keyCode === 32) { 
+                playerHardDrop();
+                event.preventDefault();
+            } 
+            // Rotate Left (CCW): S (83)
+            else if (event.keyCode === 83) { 
+                playerRotate(-1);
+            } 
+            // Rotate Right (CW): W (87)
+            else if (event.keyCode === 87) { 
+                playerRotate(1);
+            } 
+            // Rotate 180: L (76)
+            else if (event.keyCode === 76) {
+                playerRotate(2);
+            }
+            // Hold: J (74)
+            else if (event.keyCode === 74) { 
+                playerHold();
+            }
+        });
+
+        document.addEventListener('keyup', event => {
+            if (event.keyCode === 65 || event.keyCode === 68) {
+                inputState.active = false;
+            }
+        });
+
+        // Start Game
+        playerReset();
+        draw();
+        requestAnimationFrame(update); // Start loop correctly
+
+    </script>
+</body>
+</html>
