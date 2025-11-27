@@ -1,6 +1,6 @@
-# HTML5 Tetris Clone
+# Wetris
 
-A faithful recreation of the classic Tetris game, built entirely in a single HTML file using vanilla JavaScript and the HTML5 Canvas API.
+Wetris is a faithful recreation of the classic Tetris game, built entirely in a single HTML file using vanilla JavaScript and the HTML5 Canvas API.
 
 ## 🎮 Play Online
 Simply open the `index.html` file in any modern web browser to play!
