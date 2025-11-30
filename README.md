@@ -5,8 +5,8 @@
 Prepare to get absolutely **SOAKED** in high-octane block-dropping action! 🌊🤿  
 Why play dry Tetris when you can play **WETRIS**? 🚿🛁🧼
 
-👉 **DIVE IN:** [PLAY NOW](https://adhamabouaita.github.io/tetris/) 👈 
-*(or just open the index.html if you're boring)* 🥱
+👉 **DIVE IN:** [PLAY NOW](https://wetris.wmoj.ca) 👈 
+
 
 ## 🕹️ HOW TO GET WET 🕹️
 
